@@ -12,6 +12,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringEscapeUtils;
 
 import static com.squareup.spoon.DeviceTestResult.SCREENSHOT_SEPARATOR;
 
@@ -28,7 +29,6 @@ final class HtmlUtils {
       return new SimpleDateFormat("EEEE, MMMM dd, h:mm a");
     }
   };
-
 
   static String deviceDetailsToString(DeviceDetails details) {
     if (details == null) return null;
@@ -89,9 +89,6 @@ final class HtmlUtils {
       case FAIL:
         status = "fail";
         break;
-      case ERROR:
-        status = "error";
-        break;
       default:
         throw new IllegalArgumentException("Unknown result status: " + testResult.getStatus());
     }
@@ -100,12 +97,13 @@ final class HtmlUtils {
 
   /** Convert a method name from {@code testThisThing_DoesThat} to "This Thing, Does That". */
   static String prettifyMethodName(String methodName) {
-    if (!methodName.startsWith("test")) {
-      throw new IllegalArgumentException(
-          "Method name '" + methodName + "' does not start with 'test'.");
+    if (methodName.startsWith("test")) {
+      methodName = methodName.substring(4);
+    } else if (Character.isLowerCase(methodName.charAt(0))) {
+      methodName = Character.toUpperCase(methodName.charAt(0)) + methodName.substring(1);
     }
     StringBuilder pretty = new StringBuilder();
-    String[] parts = methodName.substring(4).split("_");
+    String[] parts = methodName.split("_");
     for (String part : parts) {
       if ("".equals(part.trim())) {
         continue; // Skip empty parts.
@@ -184,19 +182,32 @@ final class HtmlUtils {
     return new Screenshot(relativePath, caption);
   }
 
+  public static HtmlUtils.SavedFile getFile(File file, File output) {
+    return new SavedFile(createRelativeUri(file, output), file.getName());
+  }
+
   /** Parse the string representation of an exception to a {@link ExceptionInfo} instance. */
   static ExceptionInfo processStackTrace(StackTrace exception) {
     if (exception == null) {
       return null;
     }
-    String message = exception.toString().replace("\n", "<br/>");
+    // Escape any special HTML characters in the exception that would otherwise break the HTML
+    // rendering (e.g. the angle brackets around the default toString() for enums).
+    String message = StringEscapeUtils.escapeHtml4(exception.toString());
+
+    // Newline characters are usually stripped out by the parsing code in
+    // {@link StackTrace#from(String)}, but they can sometimes remain (e.g. when the stack trace
+    // is not in an expected format).  This replacement needs to be done after any HTML escaping.
+    message = message.replace("\n", "<br/>");
+
     List<String> lines = new ArrayList<String>();
     for (StackTrace.Element element : exception.getElements()) {
       lines.add("&nbsp;&nbsp;&nbsp;&nbsp;at " + element.toString());
     }
     while (exception.getCause() != null) {
       exception = exception.getCause();
-      lines.add("Caused by: " + exception.toString().replace("\n", "<br/>"));
+      String causeMessage = StringEscapeUtils.escapeHtml4(exception.toString());
+      lines.add("Caused by: " + causeMessage.replace("\n", "<br/>"));
     }
     return new ExceptionInfo(message, lines);
   }
@@ -234,6 +245,19 @@ final class HtmlUtils {
       this.id = ID.getAndIncrement();
       this.path = path;
       this.caption = caption;
+    }
+  }
+
+  static final class SavedFile {
+    private static final AtomicLong ID = new AtomicLong(0);
+    private final long id;
+    public final String path;
+    public final String name;
+
+    SavedFile(String path, String name) {
+      this.id = ID.incrementAndGet();
+      this.path = path;
+      this.name = name;
     }
   }
 
